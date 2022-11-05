@@ -1,10 +1,11 @@
-package untisAPI
+package untisApi
 
 import (
 	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cenkalti/backoff/v4"
 	"github.com/go-resty/resty/v2"
 	"github.com/pquerna/otp/totp"
 	"github.com/rotisserie/eris"
@@ -64,19 +65,19 @@ func (c *Client) Login() error {
 		return errors.New(fmt.Sprintf("status code non 200, body: %s", resp.String()))
 	}
 
-	if !gjson.Get(string(resp.String()), "data").Exists() {
+	if !gjson.GetBytes(resp.Body(), "data").Exists() {
 		return eris.New("response didn't contain any data key")
 	}
 
-	if !gjson.Get(string(resp.String()), "data.loginServiceConfig").Exists() {
+	if !gjson.GetBytes(resp.Body(), "data.loginServiceConfig").Exists() {
 		return eris.New("response didn't contain any loginServiceConfig key")
 	}
 
-	if !gjson.Get(string(resp.String()), "data.loginServiceConfig.user").Exists() {
+	if !gjson.GetBytes(resp.Body(), "data.loginServiceConfig.user").Exists() {
 		return eris.New("response didn't contain any loginServiceConfig.user key")
 	}
 
-	if !gjson.Get(string(resp.String()), "data.loginServiceConfig.user.personId").Exists() {
+	if !gjson.GetBytes(resp.Body(), "data.loginServiceConfig.user.personId").Exists() {
 		return eris.New("response didn't contain any personId")
 	}
 
@@ -97,9 +98,8 @@ func (c *Client) Login() error {
 		return err
 	}
 	if resp.StatusCode() == 200 {
-		if res := gjson.Get(resp.String(), "klasseId"); res.Type != gjson.Number {
+		if res := gjson.Get(resp.String(), "data.klasseId"); res.Type != gjson.Number {
 			return nil
-			// Klassid not as important
 		} else {
 			c.sessionInformation.ClassId = int(res.Int())
 		}
@@ -140,7 +140,12 @@ func (c Class) String() string {
 }
 
 // Make JSON-RPC requests with the current session
-func (c *Client) request(method string, params string, validateSession bool) ([]byte, error) {
+func (c *Client) request(method string, params interface{}, validateSession bool) ([]byte, error) {
+	if validateSession {
+		if err := c.validateSession(); err != nil {
+			return nil, err
+		}
+	}
 	resp, err := c.httpClient.R().SetQueryParam(
 		"school", c.School,
 	).SetHeader(
@@ -163,13 +168,31 @@ func (c *Client) request(method string, params string, validateSession bool) ([]
 	}
 
 	if !gjson.Get(resp.String(), "result").Exists() {
-		return nil, errors.New("Server didn't return any result.")
+		return nil, errors.New("server didn't return any result")
 	}
 
 	return resp.Body(), nil
 }
 
-func (c *Client) requestTimeTable(id int, timeTableType int, startDate time.Time, endDate time.Time, validateSession bool) ([]byte, error) {
+func (c *Client) validateSession() error {
+	b := backoff.NewExponentialBackOff()
+	b.Multiplier = 3
+	b.MaxElapsedTime = 30 * time.Minute
+	return backoff.Retry(func() error {
+		_, err := c.GetLatestSchoolyear(false)
+		if err != nil {
+			f := backoff.NewExponentialBackOff()
+			b.MaxInterval = 30 * time.Minute
+			b.Multiplier = 2.5
+			return backoff.Retry(func() error {
+				return c.Login()
+			}, f)
+		}
+		return err
+	}, b)
+}
+
+func (c *Client) requestTimeTable(id int, timeTableType int, startDate time.Time, endDate time.Time, validateSession bool) ([]Lesson, error) {
 	params := map[string]any{
 		"options": map[string]any{
 			"id": time.Now().UnixMilli(),
@@ -205,65 +228,66 @@ func (c *Client) requestTimeTable(id int, timeTableType int, startDate time.Time
 		params["options"].(map[string]any)["endDate"] = GetDateUntisFormat(endDate)
 	}
 
-	paramsJson, err := json.Marshal(params)
+	resp, err := c.request("getTimetable", params, validateSession)
 	if err != nil {
 		return nil, err
 	}
 
-	resp, err := c.request("getTimetable", string(paramsJson), validateSession)
-	if err != nil {
+	res := gjson.GetBytes(resp, "result")
+	if !res.Exists() {
+		return nil, errors.New("no result in response")
+	}
+	var lessons []Lesson
+	if err := json.Unmarshal([]byte(res.String()), &lessons); err != nil {
 		return nil, err
 	}
 
-	return resp, nil
+	return lessons, nil
 }
 
-// TODO: Change return type if I ever get access to the scheme
-func (c *Client) GetTimetableForToday(id int, timeTableType int, validateSession bool) ([]byte, error) {
+func (c *Client) GetTimetableForToday(id int, timeTableType int, validateSession bool) ([]Lesson, error) {
 	return c.requestTimeTable(id, timeTableType, time.Time{}, time.Time{}, validateSession)
 	// TODO: Change return type if I ever get access to the scheme and perform additional handling of the Data
 }
 
-// TODO: Change return and generate struct for return type if the server ever returns any data, ? probably if schoolyear is active
-func (c *Client) GetOwnTimetableForToday(validateSession bool) (error, error) {
-	resp, err := c.requestTimeTable(
+func (c *Client) GetOwnTimetableForToday(validateSession bool) ([]Lesson, error) {
+	return c.requestTimeTable(
 		c.sessionInformation.PersonId,
 		c.sessionInformation.PersonType,
-		time.Time{}, time.Time{}, false)
-	if err != nil {
-		return nil, err
-	}
-
-	fmt.Println(string(resp))
-
-	return nil, nil
+		time.Time{}, time.Time{}, validateSession)
 }
 
-func (c *Client) GetTimetableFor(id int, timeTableType int, date time.Time, validateSession bool) ([]byte, error) {
+func (c *Client) GetTimetableFor(id int, timeTableType int, date time.Time, validateSession bool) ([]Lesson, error) {
 	return c.requestTimeTable(id, timeTableType, date, date, validateSession)
 }
 
-func (c *Client) GetOwnTimetableForRange(startDate time.Time, endDate time.Time, validateSession bool) ([]byte, error) {
+func (c *Client) GetOwnTimetableForRange(startDate time.Time, endDate time.Time, validateSession bool) ([]Lesson, error) {
 	return c.requestTimeTable(c.sessionInformation.PersonId, c.sessionInformation.PersonType, startDate, endDate, validateSession)
 }
 
-func (c *Client) GetTimetableForRange(id int, timeTableType int, startDate time.Time, endDate time.Time, validateSession bool) ([]byte, error) {
+func (c *Client) GetTimetableForRange(id int, timeTableType int, startDate time.Time, endDate time.Time, validateSession bool) ([]Lesson, error) {
 	return c.requestTimeTable(id, timeTableType, startDate, endDate, validateSession)
 }
 
-func (c *Client) GetOwnClassTimetableForToday(validateSession bool) ([]byte, error) {
+func (c *Client) GetOwnClassTimetableForToday(validateSession bool) ([]Lesson, error) {
 	return c.requestTimeTable(c.sessionInformation.ClassId, 1, time.Time{}, time.Time{}, validateSession)
 }
 
-func (c *Client) getOwnClassTimetableFor(date time.Time, validateSession bool) ([]byte, error) {
+func (c *Client) getOwnClassTimetableFor(date time.Time, validateSession bool) ([]Lesson, error) {
 	return c.requestTimeTable(c.sessionInformation.ClassId, 1, date, date, validateSession)
 }
 
-func (c *Client) GetOwnClassTimetableForRange(startDate time.Time, endDate time.Time, validateSession bool) ([]byte, error) {
+func (c *Client) GetOwnClassTimetableForRange(startDate time.Time, endDate time.Time, validateSession bool) ([]Lesson, error) {
 	return c.requestTimeTable(c.sessionInformation.ClassId, 1, startDate, endDate, validateSession)
 }
 
 func (c *Client) GetHomeworksFor(rangeStart time.Time, rangeEnd time.Time, validateSession bool) ([]byte, error) {
+	if validateSession {
+		if err := c.validateSession(); err != nil {
+			return nil, err
+		}
+	}
+
 	// TODO: implement data extraction logic and structure for homework data
 	resp, err := c.httpClient.R().SetHeader(
 		"Cookie", c.GetCookie(),
@@ -272,6 +296,7 @@ func (c *Client) GetHomeworksFor(rangeStart time.Time, rangeEnd time.Time, valid
 	).SetQueryParam(
 		"endDate", GetDateUntisFormat(rangeEnd),
 	).Get(c.BaseUrl + "/WebUntis/api/homeworks/lessons")
+
 	return resp.Body(), err
 }
 
@@ -294,11 +319,32 @@ func (c *Client) GetSubjects(validateSession bool) ([]Subject, error) {
 	return subjects, nil
 }
 
-func (c *Client) GetTimegrid(validateSession bool) ([]byte, error) {
-	return c.request("getTimegridUnits", "", validateSession)
+func (c *Client) GetTimegrid(validateSession bool) ([]TimeGridLesson, error) {
+	resp, err := c.request("getTimegridUnits", "", validateSession)
+	if err != nil {
+		return nil, err
+	}
+	var grid []TimeGridLesson
+
+	res := gjson.GetBytes(resp, "result")
+	if !res.Exists() {
+		log.Println(string(resp))
+		return nil, errors.New("key results doesn't exist in answer")
+	}
+
+	if err := json.Unmarshal([]byte(res.String()), &grid); err != nil {
+		return nil, err
+	}
+	return grid, nil
 }
 
 func (c *Client) GetHomeWorkAndLessons(rangeStart time.Time, rangeEnd time.Time, validateSession bool) ([]byte, error) {
+	if validateSession {
+		if err := c.validateSession(); err != nil {
+			return nil, err
+		}
+	}
+
 	resp, err := c.httpClient.R().SetHeader(
 		"Cookie", c.GetCookie(),
 	).SetQueryParam(
@@ -322,7 +368,7 @@ func (c *Client) GetSchoolyears(validateSession bool) ([]SchoolYear, error) {
 	if err != nil {
 		return nil, err
 	}
-	resultsJson := gjson.Get(string(data), "result")
+	resultsJson := gjson.GetBytes(data, "result")
 	if !resultsJson.Exists() {
 		log.Println(string(data))
 		return nil, errors.New("key results doesn't exist in answer")
@@ -381,7 +427,7 @@ func (c *Client) GetClasses(validateSession bool) ([]Class, error) {
 	return classes, nil
 }
 
-// Get the time when WebUntis last changed it's data
+// Get the time when WebUntis last changed its data
 func (c *Client) GetLatestImportTime(validateSession bool) (time.Time, error) {
 	data, err := c.request("getLatestImportTime", "{}", validateSession)
 	if err != nil {
@@ -396,8 +442,14 @@ func (c *Client) GetLatestImportTime(validateSession bool) (time.Time, error) {
 	return time.Unix(0, timeInt.Int()*int64(time.Millisecond)), nil
 }
 
-// Returns all the Lessons where you were absent including the excused one!
+// Returns all the Lessons where you were absent including the excused one
 func (c *Client) GetAbsentLessons(rangeStart time.Time, rangeEnd time.Time, excuseStateId int, validateSession bool) (Absences, error) {
+	if validateSession {
+		if err := c.validateSession(); err != nil {
+			return Absences{}, err
+		}
+	}
+
 	resp, err := c.httpClient.R().SetQueryParams(
 		map[string]string{
 			"startDate":      GetDateUntisFormat(rangeStart),

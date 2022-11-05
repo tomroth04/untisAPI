@@ -1,4 +1,4 @@
-package untisAPI
+package untisApi
 
 import (
 	"testing"
