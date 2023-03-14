@@ -1,39 +1,35 @@
-package untisApi
+package types
 
 import (
 	b64 "encoding/base64"
 	"encoding/json"
+	"github.com/tidwall/gjson"
 	"strconv"
 	"time"
 )
 
-func toJsonStr(data any) string {
+// ToJsonStr convert anything/interface{} to strign
+func ToJsonStr(data any) string {
 	jsonData, _ := json.Marshal(data)
 	return string(jsonData)
 }
 
-func toJson(data any) []byte {
-	jsonData, _ := json.Marshal(data)
-	return jsonData
-}
-
+// GetDateUntisFormat formats date to string
 func GetDateUntisFormat(date time.Time) string {
 	return date.Format("20060102")
 }
 
+// ParseUntisDate parses a string date
 func ParseUntisDate(date string) (time.Time, error) {
 	return time.Parse("20060102", date)
 }
 
-func MustParseUntisDate(date string) time.Time {
-	t, _ := ParseUntisDate(date)
-	return t
-}
-
+// ToBase64 transform to base64
 func ToBase64(str string) string {
 	return b64.StdEncoding.EncodeToString([]byte(str))
 }
 
+// parse the hourly time from a lesson
 func getLessonTimeFromInteger(i int) string {
 	n := strconv.Itoa(i)
 	if len(n) == 3 {
@@ -47,4 +43,27 @@ func getLessonTimeFromInteger(i int) string {
 		return time.Date(0, 0, 0, h, m, 0, 0, time.UTC).Format("15:04")
 	}
 	return ""
+}
+
+func GetLessonMap(subjs []LessonWithSubj) (map[int]string, error) {
+	lessons := make(map[int]string)
+
+	for _, subj := range subjs {
+		lessons[subj.Id] = subj.Subject
+	}
+
+	return lessons, nil
+}
+
+func str(n int) string {
+	return strconv.Itoa(n)
+}
+
+// TransformResultLesson adds additional information to lesson
+func TransformResultLesson(res []gjson.Result) []GenericLesson {
+	result := make([]GenericLesson, len(res))
+	for i := 0; i < len(res); i++ {
+		result[i].R = res[i]
+	}
+	return result
 }

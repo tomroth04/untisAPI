@@ -15,9 +15,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	. "untisAPI/types"
 )
 
-// TODO: add context to the errors
+// TODO: add more information to the errors
 
 type Client struct {
 	BaseUrl            string
@@ -61,7 +62,7 @@ func (c *Client) Login() error {
 		return err
 	}
 
-	if resp.StatusCode() != 200 {
+	if resp.IsError() {
 		return errors.New(fmt.Sprintf("status code non 200, body: %s", resp.String()))
 	}
 
@@ -120,23 +121,18 @@ func (c *Client) Logout() error {
 			"method":  "logout",
 			"params":  "{}",
 			"jsonrpc": "2.0",
-		}).Post(
+		}).SetHeaders(
+		c.getHeaders(),
+	).Post(
 		fmt.Sprintf("%s/WebUntis/jsonrpc.do", c.BaseUrl))
 	if err != nil {
 		return err
 	}
 
-	if resp.StatusCode() != 200 {
+	if resp.IsError() {
 		return errors.New("status code non 200")
 	}
 	return nil
-}
-
-func (c Class) String() string {
-	return fmt.Sprintf(
-		"%s (%s) Id: %s teacher1:%s",
-		c.Name, c.LongName, strconv.Itoa(c.Id), strconv.Itoa(c.Teacher1),
-	)
 }
 
 // Make JSON-RPC requests with the current session
@@ -146,25 +142,33 @@ func (c *Client) request(method string, params interface{}, validateSession bool
 			return nil, err
 		}
 	}
-	resp, err := c.httpClient.R().SetQueryParam(
-		"school", c.School,
-	).SetHeader(
-		"Cookie", c.GetCookie(),
-	).SetBody(
-		map[string]any{
-			"id":      c.Identity,
-			"method":  method,
-			"params":  params,
-			"jsonrpc": "2.0",
-		},
-	).Post(c.BaseUrl + "/WebUntis/jsonrpc.do")
 
-	if err != nil {
+	var resp *resty.Response
+
+	if err := backoff.Retry(func() error {
+		var err error
+		resp, err = c.httpClient.R().SetQueryParam(
+			"school", c.School,
+		).SetHeader(
+			"Cookie", c.GetCookie(),
+		).SetBody(
+			map[string]any{
+				"id":      c.Identity,
+				"method":  method,
+				"params":  params,
+				"jsonrpc": "2.0",
+			},
+		).Post(c.BaseUrl + "/WebUntis/jsonrpc.do")
+
+		if err != nil {
+			return err
+		}
+		if resp.IsError() {
+			return errors.New("server response non 200e")
+		}
+		return nil
+	}, backoff.NewExponentialBackOff()); err != nil {
 		return nil, err
-	}
-
-	if resp.StatusCode() != 200 {
-		return nil, errors.New("server response non 200")
 	}
 
 	if !gjson.Get(resp.String(), "result").Exists() {
@@ -192,7 +196,7 @@ func (c *Client) validateSession() error {
 	}, b)
 }
 
-func (c *Client) requestTimeTable(id int, timeTableType int, startDate time.Time, endDate time.Time, validateSession bool) ([]Lesson, error) {
+func (c *Client) requestTimeTable(id int, timeTableType int, startDate time.Time, endDate time.Time, validateSession bool) ([]GenericLesson, error) {
 	params := map[string]any{
 		"options": map[string]any{
 			"id": time.Now().UnixMilli(),
@@ -237,51 +241,47 @@ func (c *Client) requestTimeTable(id int, timeTableType int, startDate time.Time
 	if !res.Exists() {
 		return nil, errors.New("no result in response")
 	}
-	var lessons []Lesson
-	if err := json.Unmarshal([]byte(res.String()), &lessons); err != nil {
-		return nil, err
-	}
 
-	return lessons, nil
+	return TransformResultLesson(res.Array()), nil
 }
 
-func (c *Client) GetTimetableForToday(id int, timeTableType int, validateSession bool) ([]Lesson, error) {
+func (c *Client) GetTimetableForToday(id int, timeTableType int, validateSession bool) ([]GenericLesson, error) {
 	return c.requestTimeTable(id, timeTableType, time.Time{}, time.Time{}, validateSession)
 	// TODO: Change return type if I ever get access to the scheme and perform additional handling of the Data
 }
 
-func (c *Client) GetOwnTimetableForToday(validateSession bool) ([]Lesson, error) {
+func (c *Client) GetOwnTimetableForToday(validateSession bool) ([]GenericLesson, error) {
 	return c.requestTimeTable(
 		c.sessionInformation.PersonId,
 		c.sessionInformation.PersonType,
 		time.Time{}, time.Time{}, validateSession)
 }
 
-func (c *Client) GetTimetableFor(id int, timeTableType int, date time.Time, validateSession bool) ([]Lesson, error) {
+func (c *Client) GetTimetableFor(id int, timeTableType int, date time.Time, validateSession bool) ([]GenericLesson, error) {
 	return c.requestTimeTable(id, timeTableType, date, date, validateSession)
 }
 
-func (c *Client) GetOwnTimetableForRange(startDate time.Time, endDate time.Time, validateSession bool) ([]Lesson, error) {
+func (c *Client) GetOwnTimetableForRange(startDate time.Time, endDate time.Time, validateSession bool) ([]GenericLesson, error) {
 	return c.requestTimeTable(c.sessionInformation.PersonId, c.sessionInformation.PersonType, startDate, endDate, validateSession)
 }
 
-func (c *Client) GetTimetableForRange(id int, timeTableType int, startDate time.Time, endDate time.Time, validateSession bool) ([]Lesson, error) {
+func (c *Client) GetTimetableForRange(id int, timeTableType int, startDate time.Time, endDate time.Time, validateSession bool) ([]GenericLesson, error) {
 	return c.requestTimeTable(id, timeTableType, startDate, endDate, validateSession)
 }
 
-func (c *Client) GetOwnClassTimetableForToday(validateSession bool) ([]Lesson, error) {
+func (c *Client) GetOwnClassTimetableForToday(validateSession bool) ([]GenericLesson, error) {
 	return c.requestTimeTable(c.sessionInformation.ClassId, 1, time.Time{}, time.Time{}, validateSession)
 }
 
-func (c *Client) getOwnClassTimetableFor(date time.Time, validateSession bool) ([]Lesson, error) {
+func (c *Client) getOwnClassTimetableFor(date time.Time, validateSession bool) ([]GenericLesson, error) {
 	return c.requestTimeTable(c.sessionInformation.ClassId, 1, date, date, validateSession)
 }
 
-func (c *Client) GetOwnClassTimetableForRange(startDate time.Time, endDate time.Time, validateSession bool) ([]Lesson, error) {
+func (c *Client) GetOwnClassTimetableForRange(startDate time.Time, endDate time.Time, validateSession bool) ([]GenericLesson, error) {
 	return c.requestTimeTable(c.sessionInformation.ClassId, 1, startDate, endDate, validateSession)
 }
 
-func (c *Client) GetHomeworksFor(rangeStart time.Time, rangeEnd time.Time, validateSession bool) ([]byte, error) {
+func (c *Client) GetHomeworksFor(rangeStart time.Time, rangeEnd time.Time, validateSession bool) ([]Homework, error) {
 	if validateSession {
 		if err := c.validateSession(); err != nil {
 			return nil, err
@@ -297,7 +297,39 @@ func (c *Client) GetHomeworksFor(rangeStart time.Time, rangeEnd time.Time, valid
 		"endDate", GetDateUntisFormat(rangeEnd),
 	).Get(c.BaseUrl + "/WebUntis/api/homeworks/lessons")
 
-	return resp.Body(), err
+	result := gjson.GetBytes(resp.Body(), "data.homeworks")
+	if !result.Exists() {
+		return nil, eris.Wrap(err, "request didn't return any result")
+	}
+
+	// Embed lesson names into homeworks
+	var homeworks []Homework
+
+	if err := json.Unmarshal([]byte(result.String()), &homeworks); err != nil {
+		return nil, eris.Wrap(err, "homework format incorrect")
+	}
+
+	lessonResult := gjson.GetBytes(resp.Body(), "data.lessons")
+
+	if !lessonResult.Exists() {
+		return nil, eris.Wrap(err, "request didn't return any result")
+	}
+
+	var lessons []LessonWithSubj
+	if err := json.Unmarshal([]byte(lessonResult.String()), &lessons); err != nil {
+		return nil, eris.Wrap(err, "Lesson format incorrect")
+	}
+
+	lessonMap, err := GetLessonMap(lessons)
+	if err != nil {
+		return nil, eris.Wrap(err, "Error getting lesson from request")
+	}
+
+	for i, homework := range homeworks {
+		homeworks[i].LessonName = lessonMap[homework.LessonId]
+	}
+
+	return homeworks, err
 }
 
 func (c *Client) GetSubjects(validateSession bool) ([]Subject, error) {
@@ -306,7 +338,7 @@ func (c *Client) GetSubjects(validateSession bool) ([]Subject, error) {
 		return nil, eris.Wrap(err, "Error getting subjects")
 	}
 
-	result := gjson.Get(string(resp), "result")
+	result := gjson.GetBytes(resp, "result")
 	if !result.Exists() {
 		return nil, eris.Wrap(err, "request didn't return any result")
 	}
@@ -355,14 +387,14 @@ func (c *Client) GetHomeWorkAndLessons(rangeStart time.Time, rangeEnd time.Time,
 	if err != nil {
 		return nil, eris.Wrap(err, "error getting homeworks and lessons")
 	}
-	if resp.StatusCode() != 200 {
-		return nil, eris.New("server response non 200")
+	if resp.IsError() {
+		return nil, eris.New("server response non 200e")
 	}
 
 	return resp.Body(), nil
 }
 
-// Get all WebUntis Schoolyears
+// GetSchoolyears gets all WebUntis Schoolyears
 func (c *Client) GetSchoolyears(validateSession bool) ([]SchoolYear, error) {
 	data, err := c.request("getSchoolyears", "{}", validateSession)
 	if err != nil {
@@ -389,7 +421,7 @@ func (c *Client) GetSchoolyears(validateSession bool) ([]SchoolYear, error) {
 	return schoolYears, nil
 }
 
-// Get the latest WebUntis Schoolyear
+// GetLatestSchoolyear gets the latest WebUntis Schoolyear
 func (c *Client) GetLatestSchoolyear(validateSession bool) (SchoolYear, error) {
 	schoolYears, err := c.GetSchoolyears(validateSession)
 	if err != nil {
@@ -407,7 +439,7 @@ func (c *Client) GetClasses(validateSession bool) ([]Class, error) {
 	requestData := map[string]int{
 		"schoolyearId": SchoolYear.Id,
 	}
-	respData, err := c.request("getKlassen", toJsonStr(requestData), validateSession)
+	respData, err := c.request("getKlassen", ToJsonStr(requestData), validateSession)
 	if err != nil {
 		return nil, err
 	}
@@ -427,7 +459,7 @@ func (c *Client) GetClasses(validateSession bool) ([]Class, error) {
 	return classes, nil
 }
 
-// Get the time when WebUntis last changed its data
+// GetLatestImportTime gets the time when WebUntis last changed its data
 func (c *Client) GetLatestImportTime(validateSession bool) (time.Time, error) {
 	data, err := c.request("getLatestImportTime", "{}", validateSession)
 	if err != nil {
@@ -442,7 +474,7 @@ func (c *Client) GetLatestImportTime(validateSession bool) (time.Time, error) {
 	return time.Unix(0, timeInt.Int()*int64(time.Millisecond)), nil
 }
 
-// Returns all the Lessons where you were absent including the excused one
+// GetAbsentLessons returns all the lessons where you were absent including the excused one
 func (c *Client) GetAbsentLessons(rangeStart time.Time, rangeEnd time.Time, excuseStateId int, validateSession bool) (Absences, error) {
 	if validateSession {
 		if err := c.validateSession(); err != nil {
@@ -467,7 +499,7 @@ func (c *Client) GetAbsentLessons(rangeStart time.Time, rangeEnd time.Time, excu
 		return Absences{}, err
 	}
 
-	if resp.StatusCode() != 200 {
+	if resp.IsError() {
 		return Absences{}, errors.New("server response non 200")
 	}
 	if resp.String() == "" {
@@ -538,7 +570,7 @@ func (c *Client) getAccessToken() error {
 		return err
 	}
 
-	if resp.StatusCode() != 200 {
+	if resp.IsError() {
 		log.Printf("Error getting token from server, request-body: %v", resp.Body())
 		return errors.New("server response non 200")
 	}
