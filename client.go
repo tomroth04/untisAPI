@@ -10,12 +10,12 @@ import (
 	"github.com/pquerna/otp/totp"
 	"github.com/rotisserie/eris"
 	"github.com/tidwall/gjson"
+	. "github.com/tomroth04/untisAPI/types"
 	"log"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
-	. "untisAPI/types"
 )
 
 // TODO: add more information to the errors
@@ -247,7 +247,6 @@ func (c *Client) requestTimeTable(id int, timeTableType int, startDate time.Time
 
 func (c *Client) GetTimetableForToday(id int, timeTableType int, validateSession bool) ([]GenericLesson, error) {
 	return c.requestTimeTable(id, timeTableType, time.Time{}, time.Time{}, validateSession)
-	// TODO: Change return type if I ever get access to the scheme and perform additional handling of the Data
 }
 
 func (c *Client) GetOwnTimetableForToday(validateSession bool) ([]GenericLesson, error) {
@@ -288,7 +287,6 @@ func (c *Client) GetHomeworksFor(rangeStart time.Time, rangeEnd time.Time, valid
 		}
 	}
 
-	// TODO: implement data extraction logic and structure for homework data
 	resp, err := c.httpClient.R().SetHeader(
 		"Cookie", c.GetCookie(),
 	).SetQueryParam(

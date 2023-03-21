@@ -1,4 +1,4 @@
-module untisAPI
+module github.com/tomroth04/untisAPI
 
 go 1.19
 
