@@ -9,19 +9,26 @@ import (
 	"github.com/go-resty/resty/v2"
 	"github.com/pquerna/otp/totp"
 	"github.com/rotisserie/eris"
+	"github.com/rs/zerolog/log"
 	"github.com/tidwall/gjson"
 	. "github.com/tomroth04/untisAPI/types"
-	"log"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 )
 
-// TODO: add more information to the errors
+var responseNoDataKey = eris.New("response didn't contain any data key")
+var loginServiceConfigKeyAbsent = eris.New("response didn't contain any loginServiceConfig key")
+var loginServiceConfigUseKeyAbsent = eris.New("response didn't contain any loginServiceConfig.user key")
+var personIdMissing = eris.New("response didn't contain any personId")
+var personArrayMissing = eris.New("response didn't contain any persons array")
+var statusCodeNonOK = eris.New("status code non 200")
+
+// TODO: Check implementation of validateSession with regards to the 10minutes of idle time
 
 type Client struct {
-	BaseUrl            string
+	BaseURL            string
 	School             string
 	Identity           string
 	Username           string
@@ -31,9 +38,9 @@ type Client struct {
 	httpClient         *resty.Client
 }
 
-func NewClient(baseUrl string, school string, identity string, username string, secret string) Client {
+func NewClient(baseURL string, school string, identity string, username string, secret string) Client {
 	return Client{
-		BaseUrl:    "https://" + baseUrl,
+		BaseURL:    "https://" + baseURL,
 		School:     school,
 		Identity:   identity,
 		Username:   username,
@@ -47,46 +54,45 @@ func NewClient(baseUrl string, school string, identity string, username string, 
 // Notice: The server may revoke this session after less than 10min of idle.**
 func (c *Client) Login() error {
 	if err := c.getAccessToken(); err != nil {
-		log.Println(err)
-		return err
+		return eris.Wrap(err, "error during the extraction of access token")
 	}
 
 	// Get personId & personType
 	resp, err := c.httpClient.R().SetHeaders(
 		c.getHeaders(),
 	).Get(
-		fmt.Sprintf("%s/WebUntis/api/app/config", c.BaseUrl),
+		fmt.Sprintf("%s/WebUntis/api/app/config", c.BaseURL),
 	)
 
 	if err != nil {
-		return err
+		return err // wrap error
 	}
 
 	if resp.IsError() {
-		return errors.New(fmt.Sprintf("status code non 200, body: %s", resp.String()))
+		return fmt.Errorf("status code non 200, body: %s", resp.String())
 	}
 
 	if !gjson.GetBytes(resp.Body(), "data").Exists() {
-		return eris.New("response didn't contain any data key")
+		return responseNoDataKey
 	}
 
 	if !gjson.GetBytes(resp.Body(), "data.loginServiceConfig").Exists() {
-		return eris.New("response didn't contain any loginServiceConfig key")
+		return loginServiceConfigKeyAbsent
 	}
 
 	if !gjson.GetBytes(resp.Body(), "data.loginServiceConfig.user").Exists() {
-		return eris.New("response didn't contain any loginServiceConfig.user key")
+		return loginServiceConfigUseKeyAbsent
 	}
 
 	if !gjson.GetBytes(resp.Body(), "data.loginServiceConfig.user.personId").Exists() {
-		return eris.New("response didn't contain any personId")
+		return personIdMissing
 	}
 
 	c.sessionInformation.PersonId = int(gjson.Get(resp.String(), "data.loginServiceConfig.user.personId").Int())
 
 	persons := gjson.Get(resp.String(), "data.loginServiceConfig.user.persons")
 	if !persons.IsArray() {
-		return eris.New("response didn't contain any persons array")
+		return personArrayMissing
 	}
 
 	person := persons.Array()[0]
@@ -94,10 +100,11 @@ func (c *Client) Login() error {
 
 	resp, err = c.httpClient.R().SetHeader(
 		"Cookie", c.GetCookie(),
-	).Get(fmt.Sprintf("%s/WebUntis/api/daytimetable/config", c.BaseUrl))
+	).Get(fmt.Sprintf("%s/WebUntis/api/daytimetable/config", c.BaseURL))
 	if err != nil {
 		return err
 	}
+
 	if resp.StatusCode() == 200 {
 		if res := gjson.Get(resp.String(), "data.klasseId"); res.Type != gjson.Number {
 			return nil
@@ -106,7 +113,7 @@ func (c *Client) Login() error {
 		}
 
 	} else {
-		return errors.New(fmt.Sprintf("Status code non 200, %s", resp.String()))
+		return eris.Wrap(statusCodeNonOK, fmt.Sprintf("status code: %d", resp.StatusCode()))
 	}
 
 	return nil
@@ -124,9 +131,9 @@ func (c *Client) Logout() error {
 		}).SetHeaders(
 		c.getHeaders(),
 	).Post(
-		fmt.Sprintf("%s/WebUntis/jsonrpc.do", c.BaseUrl))
+		fmt.Sprintf("%s/WebUntis/jsonrpc.do", c.BaseURL))
 	if err != nil {
-		return err
+		return err // Wrap error
 	}
 
 	if resp.IsError() {
@@ -135,7 +142,7 @@ func (c *Client) Logout() error {
 	return nil
 }
 
-// Make JSON-RPC requests with the current session
+// Make JSON-RPC requests with the current session.
 func (c *Client) request(method string, params interface{}, validateSession bool) ([]byte, error) {
 	if validateSession {
 		if err := c.validateSession(); err != nil {
@@ -158,7 +165,7 @@ func (c *Client) request(method string, params interface{}, validateSession bool
 				"params":  params,
 				"jsonrpc": "2.0",
 			},
-		).Post(c.BaseUrl + "/WebUntis/jsonrpc.do")
+		).Post(c.BaseURL + "/WebUntis/jsonrpc.do")
 
 		if err != nil {
 			return err
@@ -166,6 +173,7 @@ func (c *Client) request(method string, params interface{}, validateSession bool
 		if resp.IsError() {
 			return errors.New("server response non 200e")
 		}
+
 		return nil
 	}, backoff.NewExponentialBackOff()); err != nil {
 		return nil, err
@@ -179,15 +187,18 @@ func (c *Client) request(method string, params interface{}, validateSession bool
 }
 
 func (c *Client) validateSession() error {
+	// TODO: maybe inform about usual backoff times in GO
 	b := backoff.NewExponentialBackOff()
 	b.Multiplier = 3
 	b.MaxElapsedTime = 30 * time.Minute
+
 	return backoff.Retry(func() error {
 		_, err := c.GetLatestSchoolyear(false)
 		if err != nil {
 			f := backoff.NewExponentialBackOff()
 			b.MaxInterval = 30 * time.Minute
 			b.Multiplier = 2.5
+
 			return backoff.Retry(func() error {
 				return c.Login()
 			}, f)
@@ -228,6 +239,7 @@ func (c *Client) requestTimeTable(id int, timeTableType int, startDate time.Time
 	if !startDate.IsZero() {
 		params["options"].(map[string]any)["startDate"] = GetDateUntisFormat(startDate)
 	}
+
 	if !endDate.IsZero() {
 		params["options"].(map[string]any)["endDate"] = GetDateUntisFormat(endDate)
 	}
@@ -293,24 +305,38 @@ func (c *Client) GetHomeworksFor(rangeStart time.Time, rangeEnd time.Time, valid
 		"startDate", GetDateUntisFormat(rangeStart),
 	).SetQueryParam(
 		"endDate", GetDateUntisFormat(rangeEnd),
-	).Get(c.BaseUrl + "/WebUntis/api/homeworks/lessons")
+	).Get(c.BaseURL + "/WebUntis/api/homeworks/lessons")
+
+	if err != nil {
+		log.Error().
+			Err(err).
+			Caller(0).
+			Msg("error during http request")
+		return nil, eris.Wrap(err, "error during http request")
+	}
+	if !resp.IsSuccess() {
+		log.Error().
+			Str("respDATA", resp.String()).
+			Msg("request status code non 200")
+		return nil, eris.Wrap(statusCodeNonOK, "request wasn't successful")
+	}
 
 	result := gjson.GetBytes(resp.Body(), "data.homeworks")
 	if !result.Exists() {
-		return nil, eris.Wrap(err, "request didn't return any result")
+		return nil, eris.New("request didn't return any result")
 	}
 
 	// Embed lesson names into homeworks
 	var homeworks []Homework
 
 	if err := json.Unmarshal([]byte(result.String()), &homeworks); err != nil {
-		return nil, eris.Wrap(err, "homework format incorrect")
+		return nil, eris.New("homework format incorrect")
 	}
 
 	lessonResult := gjson.GetBytes(resp.Body(), "data.lessons")
 
 	if !lessonResult.Exists() {
-		return nil, eris.Wrap(err, "request didn't return any result")
+		return nil, eris.New("request didn't return any result")
 	}
 
 	var lessons []LessonWithSubj
@@ -320,7 +346,7 @@ func (c *Client) GetHomeworksFor(rangeStart time.Time, rangeEnd time.Time, valid
 
 	lessonMap, err := GetLessonMap(lessons)
 	if err != nil {
-		return nil, eris.Wrap(err, "Error getting lesson from request")
+		return nil, eris.New("Error getting lesson from request")
 	}
 
 	for i, homework := range homeworks {
@@ -338,12 +364,12 @@ func (c *Client) GetSubjects(validateSession bool) ([]Subject, error) {
 
 	result := gjson.GetBytes(resp, "result")
 	if !result.Exists() {
-		return nil, eris.Wrap(err, "request didn't return any result")
+		return nil, eris.New("request didn't return any result")
 	}
 
 	var subjects []Subject
 	if err := json.Unmarshal([]byte(result.String()), &subjects); err != nil {
-		return nil, eris.Wrap(err, "Subject format incorrect")
+		return nil, eris.New("Subject format incorrect")
 	}
 
 	return subjects, nil
@@ -352,26 +378,30 @@ func (c *Client) GetSubjects(validateSession bool) ([]Subject, error) {
 func (c *Client) GetTimegrid(validateSession bool) ([]TimeGridLesson, error) {
 	resp, err := c.request("getTimegridUnits", "", validateSession)
 	if err != nil {
-		return nil, err
+		return nil, eris.Wrap(err, "error during time-grid request")
 	}
+
 	var grid []TimeGridLesson
 
 	res := gjson.GetBytes(resp, "result")
 	if !res.Exists() {
-		log.Println(string(resp))
+		log.Error().
+			Str("respDATA", string(resp)).
+			Msg("key results doesn't exist in answer")
 		return nil, errors.New("key results doesn't exist in answer")
 	}
 
 	if err := json.Unmarshal([]byte(res.String()), &grid); err != nil {
-		return nil, err
+		return nil, eris.Wrap(err, "error during unmarshalling of time-grid")
 	}
+
 	return grid, nil
 }
 
 func (c *Client) GetHomeWorkAndLessons(rangeStart time.Time, rangeEnd time.Time, validateSession bool) ([]byte, error) {
 	if validateSession {
 		if err := c.validateSession(); err != nil {
-			return nil, err
+			return nil, eris.Wrap(err, "error validating session")
 		}
 	}
 
@@ -380,35 +410,40 @@ func (c *Client) GetHomeWorkAndLessons(rangeStart time.Time, rangeEnd time.Time,
 	).SetQueryParam(
 		"startDate", GetDateUntisFormat(rangeStart),
 	).SetQueryParam("endDate", GetDateUntisFormat(rangeEnd)).Get(
-		c.BaseUrl + "/WebUntis/api/homeworks/lessons",
+		c.BaseURL + "/WebUntis/api/homeworks/lessons",
 	)
 	if err != nil {
 		return nil, eris.Wrap(err, "error getting homeworks and lessons")
 	}
+
 	if resp.IsError() {
-		return nil, eris.New("server response non 200e")
+		return nil, statusCodeNonOK
 	}
 
 	return resp.Body(), nil
 }
 
-// GetSchoolyears gets all WebUntis Schoolyears
+// GetSchoolyears gets all WebUntis Schoolyears.
 func (c *Client) GetSchoolyears(validateSession bool) ([]SchoolYear, error) {
 	data, err := c.request("getSchoolyears", "{}", validateSession)
 	if err != nil {
 		return nil, err
 	}
-	resultsJson := gjson.GetBytes(data, "result")
-	if !resultsJson.Exists() {
-		log.Println(string(data))
+	resultsJSON := gjson.GetBytes(data, "result")
+
+	if !resultsJSON.Exists() {
+		log.Error().
+			Caller(0).
+			Str("respDATA", string(data)).
+			Msg("key results doesn't exist in answer")
 		return nil, errors.New("key results doesn't exist in answer")
 	}
 
 	var schoolYears []SchoolYear
 
-	err = json.Unmarshal([]byte(resultsJson.String()), &schoolYears)
+	err = json.Unmarshal([]byte(resultsJSON.String()), &schoolYears)
 	if err != nil {
-		return nil, err
+		return nil, eris.Wrap(err, "error getting school years")
 	}
 
 	// Sort schoolYears by startDate
@@ -419,12 +454,13 @@ func (c *Client) GetSchoolyears(validateSession bool) ([]SchoolYear, error) {
 	return schoolYears, nil
 }
 
-// GetLatestSchoolyear gets the latest WebUntis Schoolyear
+// GetLatestSchoolyear gets the latest WebUntis Schoolyear.
 func (c *Client) GetLatestSchoolyear(validateSession bool) (SchoolYear, error) {
 	schoolYears, err := c.GetSchoolyears(validateSession)
 	if err != nil {
 		return SchoolYear{}, err
 	}
+
 	return schoolYears[len(schoolYears)-1], nil
 }
 
@@ -439,19 +475,22 @@ func (c *Client) GetClasses(validateSession bool) ([]Class, error) {
 	}
 	respData, err := c.request("getKlassen", ToJsonStr(requestData), validateSession)
 	if err != nil {
-		return nil, err
+		return nil, eris.Wrap(err, "error getting classes")
 	}
 
 	res := gjson.Get(string(respData), "result")
 	if !res.Exists() {
-		log.Println(string(respData))
+		log.Error().
+			Str("respDATA", string(respData)).
+			Msg("key result doesn't exist in answer")
 		return nil, errors.New("key results doesn't exist in answer")
 	}
+
 	var classes []Class
 
 	err = json.Unmarshal([]byte(res.String()), &classes)
 	if err != nil {
-		return nil, err
+		return nil, eris.Wrap(err, "error unmarshalling classes")
 	}
 
 	return classes, nil
@@ -472,7 +511,7 @@ func (c *Client) GetLatestImportTime(validateSession bool) (time.Time, error) {
 	return time.Unix(0, timeInt.Int()*int64(time.Millisecond)), nil
 }
 
-// GetAbsentLessons returns all the lessons where you were absent including the excused one
+// GetAbsentLessons returns all the lessons where you were absent including the excused one.
 func (c *Client) GetAbsentLessons(rangeStart time.Time, rangeEnd time.Time, excuseStateId int, validateSession bool) (Absences, error) {
 	if validateSession {
 		if err := c.validateSession(); err != nil {
@@ -490,15 +529,15 @@ func (c *Client) GetAbsentLessons(rangeStart time.Time, rangeEnd time.Time, excu
 	).SetHeader(
 		"Cookie", c.GetCookie(),
 	).Get(
-		c.BaseUrl + "/WebUntis/api/classreg/absences/students",
+		c.BaseURL + "/WebUntis/api/classreg/absences/students",
 	)
 
 	if err != nil {
-		return Absences{}, err
+		return Absences{}, eris.Wrap(err, "error during the fetching of absences")
 	}
 
 	if resp.IsError() {
-		return Absences{}, errors.New("server response non 200")
+		return Absences{}, eris.Wrap(statusCodeNonOK, "error during absences request")
 	}
 	if resp.String() == "" {
 		return Absences{}, errors.New("server response empty")
@@ -522,8 +561,7 @@ func (c *Client) getAccessToken() error {
 	generationTime := time.Now()
 	otp, err := totp.GenerateCode(c.Secret, generationTime)
 	if err != nil {
-		log.Println("Error generating otp using token, check secret, %w", err)
-		return err
+		return eris.Wrap(err, "Error generating otp using token, check secret")
 	}
 
 	data := map[string]any{
@@ -541,14 +579,13 @@ func (c *Client) getAccessToken() error {
 		"jsonrpc": "2.0",
 	}
 
-	bodyJson, err := json.Marshal(data)
+	bodyJSON, err := json.Marshal(data)
 	if err != nil {
-		log.Println("error generating json from request data, %w", err)
-		return err
+		return eris.Wrap(err, "error generating json from request data")
 	}
 
 	resp, err := c.httpClient.R().SetBody(
-		bytes.NewReader(bodyJson),
+		bytes.NewReader(bodyJSON),
 	).SetHeaders(
 		map[string]string{
 			"Accept":           "application/json, text/plain, */*",
@@ -560,17 +597,16 @@ func (c *Client) getAccessToken() error {
 			"Host":             "antiope.webuntis.com",
 		},
 	).SetContentLength(true).Post(
-		fmt.Sprintf("%s/WebUntis/jsonrpc_intern.do?m=getUserData2017&school=%s&v=i2.2", c.BaseUrl, c.School),
+		fmt.Sprintf("%s/WebUntis/jsonrpc_intern.do?m=getUserData2017&school=%s&v=i2.2", c.BaseURL, c.School),
 	)
 
 	if err != nil {
-		log.Println("error fetching token, %w", err)
-		return err
+		return eris.Wrap(err, "error fetching token")
 	}
 
 	if resp.IsError() {
 		log.Printf("Error getting token from server, request-body: %v", resp.Body())
-		return errors.New("server response non 200")
+		return eris.Wrap(statusCodeNonOK, "error getting untis config")
 	}
 
 	c.extractCookieInformation(resp.Header().Get("set-cookie"))
