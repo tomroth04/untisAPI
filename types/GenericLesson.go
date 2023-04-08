@@ -36,7 +36,8 @@ func (g GenericLesson) GetSubject() string {
 	if !su.Exists() || !su.IsArray() || len(su.Array()) == 0 {
 		log.Error().Caller(0).Timestamp().
 			Str("data", g.R.String()).
-			Msg("error getting su from subject")
+			Msg("error getting subject")
+		return ""
 	}
 
 	return g.R.Get("su").Array()[0].Get("longname").String()
