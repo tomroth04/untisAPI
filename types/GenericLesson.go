@@ -33,7 +33,7 @@ func (g GenericLesson) GetSubject() string {
 			Msg("error getting subject")
 	}
 	su := g.R.Get("su")
-	if !su.Exists() || !su.IsArray() {
+	if !su.Exists() || !su.IsArray() || len(su.Array()) == 0 {
 		log.Error().Caller(0).Timestamp().
 			Str("data", g.R.String()).
 			Msg("error getting su from subject")
