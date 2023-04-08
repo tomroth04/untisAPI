@@ -28,13 +28,13 @@ func (g GenericLesson) GetLessonId() int {
 // GetSubject gets the subject of the lesson
 func (g GenericLesson) GetSubject() string {
 	if !g.R.Get("su").Exists() {
-		log.Error().Caller(0).Timestamp().
+		log.Warn().Caller(0).Timestamp().
 			Str("data", g.R.String()).
 			Msg("error getting subject")
 	}
 	su := g.R.Get("su")
 	if !su.Exists() || !su.IsArray() || len(su.Array()) == 0 {
-		log.Error().Caller(0).Timestamp().
+		log.Warn().Caller(0).Timestamp().
 			Str("data", g.R.String()).
 			Msg("error getting subject")
 		return ""
