@@ -1,7 +1,7 @@
 package types
 
 import (
-	"log"
+	"github.com/rs/zerolog/log"
 	"time"
 )
 
@@ -20,7 +20,8 @@ type Homework struct {
 func (h Homework) GetDate() time.Time {
 	d, err := ParseUntisDate(str(h.Date))
 	if err != nil {
-		log.Fatalln(err)
+		log.Error().Err(err).Timestamp().Caller(0).
+			Msg("error parsing date")
 	}
 	return d
 }
@@ -28,7 +29,8 @@ func (h Homework) GetDate() time.Time {
 func (h Homework) GetDueDate() time.Time {
 	d, err := ParseUntisDate(str(h.DueDate))
 	if err != nil {
-		log.Fatalln(err)
+		log.Error().Err(err).Caller(0).Timestamp().
+			Msg("error parsing due date")
 	}
 	return d
 }

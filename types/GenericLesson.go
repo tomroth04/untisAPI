@@ -1,8 +1,8 @@
 package types
 
 import (
+	"github.com/rs/zerolog/log"
 	"github.com/tidwall/gjson"
-	"log"
 	"strconv"
 	"time"
 )
@@ -28,7 +28,15 @@ func (g GenericLesson) GetLessonId() int {
 // GetSubject gets the subject of the lesson
 func (g GenericLesson) GetSubject() string {
 	if !g.R.Get("su").Exists() {
-		log.Println("error getting subject of: " + g.R.String())
+		log.Error().Caller(0).Timestamp()§
+		Str("data", g.R.String()).
+			Msg("error getting subject")
+	}
+	su := g.R.Get("su")
+	if !su.Exists() || !su.IsArray() {
+		log.Error().Caller(0).Timestamp().
+			Str("data", g.R.String()).
+			Msg("error getting su from subject")
 	}
 
 	return g.R.Get("su").Array()[0].Get("longname").String()
@@ -38,7 +46,7 @@ func (g GenericLesson) GetSubject() string {
 func (g GenericLesson) GetDate() time.Time {
 	t, err := ParseUntisDate(strconv.Itoa(int(g.R.Get("date").Int())))
 	if err != nil {
-		log.Println(err)
+		log.Error().Err(err).Caller(0).Timestamp()
 		return time.Time{}
 	}
 	return t
@@ -48,7 +56,7 @@ func (g GenericLesson) GetDate() time.Time {
 func (g GenericLesson) GetDateFormatted() string {
 	t, err := ParseUntisDate(strconv.Itoa(int(g.R.Get("date").Int())))
 	if err != nil {
-		log.Println(err)
+		log.Error().Err(err).Caller(0).Timestamp()
 		return ""
 	}
 	return t.Format("02 January 2006")
@@ -57,7 +65,9 @@ func (g GenericLesson) GetDateFormatted() string {
 // IsReplaced checks if the lesson has a replacement teacher
 func (g GenericLesson) IsReplaced() bool {
 	if !g.R.Get("te").Exists() {
-		log.Println("No teacher: " + g.R.String())
+		log.Error().Caller(0).Timestamp().
+			Str("data", g.R.String()).
+			Msg("No teacher")
 		return false
 	}
 

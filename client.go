@@ -26,6 +26,7 @@ var personArrayMissing = eris.New("response didn't contain any persons array")
 var statusCodeNonOK = eris.New("status code non 200")
 
 // TODO: Check implementation of validateSession with regards to the 10minutes of idle time
+// TODO: undo some of the error wrapping or look into how errors are precisely handled in go
 
 type Client struct {
 	BaseURL            string
@@ -311,12 +312,14 @@ func (c *Client) GetHomeworksFor(rangeStart time.Time, rangeEnd time.Time, valid
 		log.Error().
 			Err(err).
 			Caller(0).
+			Timestamp().
 			Msg("error during http request")
 		return nil, eris.Wrap(err, "error during http request")
 	}
 	if !resp.IsSuccess() {
 		log.Error().
 			Str("respDATA", resp.String()).
+			Timestamp().
 			Msg("request status code non 200")
 		return nil, eris.Wrap(statusCodeNonOK, "request wasn't successful")
 	}
@@ -387,6 +390,7 @@ func (c *Client) GetTimegrid(validateSession bool) ([]TimeGridLesson, error) {
 	if !res.Exists() {
 		log.Error().
 			Str("respDATA", string(resp)).
+			Timestamp().
 			Msg("key results doesn't exist in answer")
 		return nil, errors.New("key results doesn't exist in answer")
 	}
@@ -435,6 +439,7 @@ func (c *Client) GetSchoolyears(validateSession bool) ([]SchoolYear, error) {
 		log.Error().
 			Caller(0).
 			Str("respDATA", string(data)).
+			Timestamp().
 			Msg("key results doesn't exist in answer")
 		return nil, errors.New("key results doesn't exist in answer")
 	}
@@ -482,6 +487,7 @@ func (c *Client) GetClasses(validateSession bool) ([]Class, error) {
 	if !res.Exists() {
 		log.Error().
 			Str("respDATA", string(respData)).
+			Timestamp().
 			Msg("key result doesn't exist in answer")
 		return nil, errors.New("key results doesn't exist in answer")
 	}
