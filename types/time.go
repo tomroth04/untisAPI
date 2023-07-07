@@ -48,6 +48,10 @@ func (t LessonTime) toTime() time.Time {
 	return time.Time(t)
 }
 
+func (t Time) ToTime() time.Time {
+	return time.Time(t)
+}
+
 func (t LessonTime) String() string {
 	return t.toTime().Format("15:04")
 }

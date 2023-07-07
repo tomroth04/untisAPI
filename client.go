@@ -607,6 +607,8 @@ func (c *Client) getAccessToken() error {
 	)
 
 	if err != nil {
+		// TOOD: check if additional log information needs to be added here regarding this error:
+		log.Err(err).Caller(0).Msg("error fetching token")
 		return eris.Wrap(err, "error fetching token")
 	}
 
