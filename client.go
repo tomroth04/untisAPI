@@ -514,7 +514,7 @@ func (c *Client) GetLatestImportTime(validateSession bool) (time.Time, error) {
 		return time.Time{}, errors.New("key results doesn't exist in answer")
 	}
 
-	return time.Unix(0, timeInt.Int()*int64(time.Millisecond)), nil
+	return time.Unix(0, timeInt.Int()*int64(time.Millisecond)).Local(), nil
 }
 
 // GetAbsentLessons returns all the lessons where you were absent including the excused one.
