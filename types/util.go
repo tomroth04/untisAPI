@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// ToJsonStr convert anything/interface{} to strign
+// ToJsonStr convert anything/interface{} to  string
 func ToJsonStr(data any) string {
 	jsonData, _ := json.Marshal(data)
 	return string(jsonData)
@@ -59,7 +59,7 @@ func str(n int) string {
 	return strconv.Itoa(n)
 }
 
-// TransformResultLesson adds additional information to lesson
+// TransformResultLesson converts gjson.Result to GenericLesson
 func TransformResultLesson(res []gjson.Result) []GenericLesson {
 	result := make([]GenericLesson, len(res))
 	for i := 0; i < len(res); i++ {

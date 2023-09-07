@@ -100,7 +100,7 @@ func (c *Client) Login() error {
 	c.sessionInformation.PersonType = int(person.Get("type").Int())
 
 	resp, err = c.httpClient.R().SetHeader(
-		"Cookie", c.GetCookie(),
+		"Cookie", c.getCookie(),
 	).Get(fmt.Sprintf("%s/WebUntis/api/daytimetable/config", c.BaseURL))
 	if err != nil {
 		return err
@@ -158,7 +158,7 @@ func (c *Client) request(method string, params interface{}, validateSession bool
 		resp, err = c.httpClient.R().SetQueryParam(
 			"school", c.School,
 		).SetHeader(
-			"Cookie", c.GetCookie(),
+			"Cookie", c.getCookie(),
 		).SetBody(
 			map[string]any{
 				"id":      c.Identity,
@@ -301,7 +301,7 @@ func (c *Client) GetHomeworksFor(rangeStart time.Time, rangeEnd time.Time, valid
 	}
 
 	resp, err := c.httpClient.R().SetHeader(
-		"Cookie", c.GetCookie(),
+		"Cookie", c.getCookie(),
 	).SetQueryParam(
 		"startDate", GetDateUntisFormat(rangeStart),
 	).SetQueryParam(
@@ -410,7 +410,7 @@ func (c *Client) GetHomeWorkAndLessons(rangeStart time.Time, rangeEnd time.Time,
 	}
 
 	resp, err := c.httpClient.R().SetHeader(
-		"Cookie", c.GetCookie(),
+		"Cookie", c.getCookie(),
 	).SetQueryParam(
 		"startDate", GetDateUntisFormat(rangeStart),
 	).SetQueryParam("endDate", GetDateUntisFormat(rangeEnd)).Get(
@@ -533,7 +533,7 @@ func (c *Client) GetAbsentLessons(rangeStart time.Time, rangeEnd time.Time, excu
 			"excuseStatusId": strconv.Itoa(excuseStateId),
 		},
 	).SetHeader(
-		"Cookie", c.GetCookie(),
+		"Cookie", c.getCookie(),
 	).Get(
 		c.BaseURL + "/WebUntis/api/classreg/absences/students",
 	)
@@ -599,8 +599,7 @@ func (c *Client) getAccessToken() error {
 			"Cache-Control":    "no-cache",
 			"Pragma":           "no-cache",
 			"X-Requested-With": "XMLHttpRequest",
-			"User-Agent":       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/61.0.3163.79 Safari/537.36",
-			"Host":             "antiope.webuntis.com",
+			"User-Agent":       c.Identity,
 		},
 	).SetContentLength(true).Post(
 		fmt.Sprintf("%s/WebUntis/jsonrpc_intern.do?m=getUserData2017&school=%s&v=i2.2", c.BaseURL, c.School),
@@ -613,7 +612,7 @@ func (c *Client) getAccessToken() error {
 	}
 
 	if resp.IsError() {
-		log.Printf("Error getting token from server, request-body: %v", resp.Body())
+		log.Printf("Error getting token from server, request-body: ", resp.String())
 		return eris.Wrap(statusCodeNonOK, "error getting untis config")
 	}
 
@@ -637,13 +636,13 @@ func (c *Client) extractCookieInformation(cookies string) {
 	}
 }
 
-func (c *Client) GetCookie() string {
+func (c *Client) getCookie() string {
 	return fmt.Sprintf("schoolname=\"%s\"; JSESSIONID=%s;", "_"+ToBase64(c.School), c.sessionInformation.SessionId)
 }
 
 func (c *Client) getHeaders() map[string]string {
 	return map[string]string{
-		"Cookie":           c.GetCookie(),
+		"Cookie":           c.getCookie(),
 		"User-Agent":       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/61.0.3163.79 Safari/537.36",
 		"Cache-Control":    "no-cache",
 		"Pragma":           "no-cache",

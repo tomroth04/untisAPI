@@ -42,7 +42,7 @@ func (g GenericLesson) GetDate() time.Time {
 		log.Error().Err(err).Caller(0).Timestamp()
 		return time.Time{}
 	}
-	return t
+	return t.In(time.Now().Location())
 }
 
 // GetDateFormatted gets the date formatted
