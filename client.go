@@ -70,7 +70,11 @@ func (c *Client) Login() error {
 	}
 
 	if resp.IsError() {
-		return fmt.Errorf("status code non 200, body: %s", resp.String())
+		log.Error().
+			Str("respDATA", resp.String()).
+			Timestamp().
+			Msg("request status code non 200")
+		return statusCodeNonOK
 	}
 
 	if !gjson.GetBytes(resp.Body(), "data").Exists() {
@@ -138,7 +142,11 @@ func (c *Client) Logout() error {
 	}
 
 	if resp.IsError() {
-		return errors.New("status code non 200")
+		log.Error().
+			Str("respDATA", resp.String()).
+			Timestamp().
+			Msg("request status code non 200")
+		return statusCodeNonOK
 	}
 	return nil
 }
