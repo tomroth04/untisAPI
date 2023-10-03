@@ -19,7 +19,7 @@ func (g GenericLesson) IsCancelled() bool {
 	return false
 }
 
-func (g GenericLesson) isIrregular() bool {
+func (g GenericLesson) IsIrregular() bool {
 	if g.R.Get("code").Exists() && g.R.Get("code").String() == "irregular" {
 		return true
 	}
