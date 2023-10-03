@@ -13,7 +13,17 @@ type GenericLesson struct {
 
 // IsCancelled check if some hours are cancelled
 func (g GenericLesson) IsCancelled() bool {
-	return g.R.Get("code").Exists()
+	if g.R.Get("code").Exists() && g.R.Get("code").String() == "cancelled" {
+		return true
+	}
+	return false
+}
+
+func (g GenericLesson) isIrregular() bool {
+	if g.R.Get("code").Exists() && g.R.Get("code").String() == "irregular" {
+		return true
+	}
+	return false
 }
 
 // GetLessonId gets the id of the lesson
