@@ -88,6 +88,20 @@ func (g GenericLesson) GetStartTimeFormatted() string {
 	return getLessonTimeFromInteger(int(g.R.Get("startTime").Int()))
 }
 
+func (g GenericLesson) GetLessonText() string {
+	if !g.R.Get("lstext").Exists() {
+		return ""
+	}
+	return g.R.Get("lstext").String()
+}
+
+func (g GenericLesson) GetSubstituteText() string {
+	if !g.R.Get("substText").Exists() {
+		return ""
+	}
+	return g.R.Get("substText").String()
+}
+
 func (g GenericLesson) IsEqual(b GenericLesson) bool {
 	return g.R.String() == b.R.String()
 }
