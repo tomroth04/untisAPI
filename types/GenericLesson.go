@@ -62,7 +62,7 @@ func (g GenericLesson) GetDateFormatted() string {
 		log.Error().Err(err).Caller(0).Timestamp()
 		return ""
 	}
-	return t.Format("02 January 2006")
+	return t.Format("Monday, 02 January 2006")
 }
 
 // IsReplaced checks if the lesson has a replacement teacher
