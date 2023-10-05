@@ -9,9 +9,9 @@ import (
 	"github.com/go-resty/resty/v2"
 	"github.com/pquerna/otp/totp"
 	"github.com/rotisserie/eris"
-	"github.com/rs/zerolog/log"
 	"github.com/tidwall/gjson"
 	. "github.com/tomroth04/untisAPI/types"
+	"log/slog"
 	"sort"
 	"strconv"
 	"strings"
@@ -70,11 +70,7 @@ func (c *Client) Login() error {
 	}
 
 	if resp.IsError() {
-		log.Error().
-			Str("respDATA", resp.String()).
-			Timestamp().
-			Msg("request status code non 200")
-		return statusCodeNonOK
+		slog.Error("request status code non 200", "respDATA", resp.String())
 	}
 
 	if !gjson.GetBytes(resp.Body(), "data").Exists() {
@@ -142,10 +138,7 @@ func (c *Client) Logout() error {
 	}
 
 	if resp.IsError() {
-		log.Error().
-			Str("respDATA", resp.String()).
-			Timestamp().
-			Msg("request status code non 200")
+		slog.Error("request status code non 200", "respDATA", resp.String())
 		return statusCodeNonOK
 	}
 	return nil
@@ -317,18 +310,11 @@ func (c *Client) GetHomeworksFor(rangeStart time.Time, rangeEnd time.Time, valid
 	).Get(c.BaseURL + "/WebUntis/api/homeworks/lessons")
 
 	if err != nil {
-		log.Error().
-			Err(err).
-			Caller(0).
-			Timestamp().
-			Msg("error during http request")
+		slog.Error("error during http request", "error", err)
 		return nil, eris.Wrap(err, "error during http request")
 	}
 	if !resp.IsSuccess() {
-		log.Error().
-			Str("respDATA", resp.String()).
-			Timestamp().
-			Msg("request status code non 200")
+		slog.Error("request status code non 200", "respDATA", resp.String())
 		return nil, eris.Wrap(statusCodeNonOK, "request wasn't successful")
 	}
 
@@ -396,10 +382,7 @@ func (c *Client) GetTimegrid(validateSession bool) ([]TimeGridLesson, error) {
 
 	res := gjson.GetBytes(resp, "result")
 	if !res.Exists() {
-		log.Error().
-			Str("respDATA", string(resp)).
-			Timestamp().
-			Msg("key results doesn't exist in answer")
+		slog.Error("key result doesn't exist in answer", "respDATA", string(resp))
 		return nil, errors.New("key results doesn't exist in answer")
 	}
 
@@ -444,11 +427,7 @@ func (c *Client) GetSchoolyears(validateSession bool) ([]SchoolYear, error) {
 	resultsJSON := gjson.GetBytes(data, "result")
 
 	if !resultsJSON.Exists() {
-		log.Error().
-			Caller(0).
-			Str("respDATA", string(data)).
-			Timestamp().
-			Msg("key results doesn't exist in answer")
+		slog.Error("key result doesn't exist in answer", "respDATA", string(data))
 		return nil, errors.New("key results doesn't exist in answer")
 	}
 
@@ -493,10 +472,7 @@ func (c *Client) GetClasses(validateSession bool) ([]Class, error) {
 
 	res := gjson.Get(string(respData), "result")
 	if !res.Exists() {
-		log.Error().
-			Str("respDATA", string(respData)).
-			Timestamp().
-			Msg("key result doesn't exist in answer")
+		slog.Error("key result doesn't exist in answer", "respDATA", string(respData))
 		return nil, errors.New("key results doesn't exist in answer")
 	}
 
@@ -615,12 +591,12 @@ func (c *Client) getAccessToken() error {
 
 	if err != nil {
 		// TOOD: check if additional log information needs to be added here regarding this error:
-		log.Err(err).Caller(0).Msg("error fetching token")
+		slog.Error("error fetching token", "error", err)
 		return eris.Wrap(err, "error fetching token")
 	}
 
 	if resp.IsError() {
-		log.Printf("Error getting token from server, request-body: ", resp.String())
+		slog.Error("error getting token from server", "request-body", resp.String())
 		return eris.Wrap(statusCodeNonOK, "error getting untis config")
 	}
 

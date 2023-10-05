@@ -5,6 +5,8 @@ import (
 	"time"
 )
 
+// necessary for unmarshalling time from json, that isn't in the default go time format
+
 type Time time.Time
 
 func (t *Time) UnmarshalJSON(s []byte) (err error) {

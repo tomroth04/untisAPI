@@ -1,8 +1,8 @@
 package types
 
 import (
-	"github.com/rs/zerolog/log"
 	"github.com/tidwall/gjson"
+	"log/slog"
 	"strconv"
 	"time"
 )
@@ -11,7 +11,7 @@ type GenericLesson struct {
 	R gjson.Result
 }
 
-// IsCancelled check if some hours are cancelled
+// IsCancelled check if a lesson is marked as cancelled
 func (g GenericLesson) IsCancelled() bool {
 	if g.R.Get("code").Exists() && g.R.Get("code").String() == "cancelled" {
 		return true
@@ -19,6 +19,7 @@ func (g GenericLesson) IsCancelled() bool {
 	return false
 }
 
+// IsIrregular checks if a lesson is marked as irregular
 func (g GenericLesson) IsIrregular() bool {
 	if g.R.Get("code").Exists() && g.R.Get("code").String() == "irregular" {
 		return true
@@ -49,7 +50,7 @@ func (g GenericLesson) GetSubject() string {
 func (g GenericLesson) GetDate() time.Time {
 	t, err := ParseUntisDate(strconv.Itoa(int(g.R.Get("date").Int())))
 	if err != nil {
-		log.Error().Err(err).Caller(0).Timestamp()
+		slog.Error("Error parsing date", "error", err)
 		return time.Time{}
 	}
 	return t.In(time.Now().Location())
@@ -59,18 +60,17 @@ func (g GenericLesson) GetDate() time.Time {
 func (g GenericLesson) GetDateFormatted() string {
 	t, err := ParseUntisDate(strconv.Itoa(int(g.R.Get("date").Int())))
 	if err != nil {
-		log.Error().Err(err).Caller(0).Timestamp()
+		slog.Error("Error parsing date", "error", err)
 		return ""
 	}
 	return t.Format("Monday, 02 January 2006")
 }
 
 // IsReplaced checks if the lesson has a replacement teacher
+// TODO: improve wording, probably call it substitute teacher
 func (g GenericLesson) IsReplaced() bool {
 	if !g.R.Get("te").Exists() {
-		log.Error().Caller(0).Timestamp().
-			Str("data", g.R.String()).
-			Msg("No teacher")
+		slog.Error("No teacher", "data", g.R.String())
 		return false
 	}
 
@@ -88,7 +88,8 @@ func (g GenericLesson) GetStartTimeFormatted() string {
 	return getLessonTimeFromInteger(int(g.R.Get("startTime").Int()))
 }
 
-func (g GenericLesson) GetLessonText() string {
+// GetLessonInfo gets the lesson information
+func (g GenericLesson) GetLessonInfo() string {
 	if !g.R.Get("lstext").Exists() {
 		return ""
 	}
