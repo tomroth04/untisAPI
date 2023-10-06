@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/cenkalti/backoff/v4"
 	"github.com/go-resty/resty/v2"
 	"github.com/pquerna/otp/totp"
 	"github.com/rotisserie/eris"
@@ -40,13 +39,21 @@ type Client struct {
 }
 
 func NewClient(baseURL string, school string, identity string, username string, secret string) Client {
+	r := resty.New()
+	r.AddRetryAfterErrorCondition()
+	r.SetRetryCount(7)
+	r.SetRetryMaxWaitTime(10 * time.Minute)
+	r.AddRetryHook(func(resp *resty.Response, err error) {
+		slog.Warn("request failed", "error", "status_code", resp.StatusCode(), err, "response", resp.String())
+	})
+
 	return Client{
 		BaseURL:    "https://" + baseURL,
 		School:     school,
 		Identity:   identity,
 		Username:   username,
 		Secret:     secret,
-		httpClient: resty.New(),
+		httpClient: r,
 	}
 }
 
@@ -152,33 +159,24 @@ func (c *Client) request(method string, params interface{}, validateSession bool
 		}
 	}
 
-	var resp *resty.Response
+	resp, err := c.httpClient.R().SetQueryParam(
+		"school", c.School,
+	).SetHeader(
+		"Cookie", c.getCookie(),
+	).SetBody(
+		map[string]any{
+			"id":      c.Identity,
+			"method":  method,
+			"params":  params,
+			"jsonrpc": "2.0",
+		},
+	).Post(c.BaseURL + "/WebUntis/jsonrpc.do")
 
-	if err := backoff.Retry(func() error {
-		var err error
-		resp, err = c.httpClient.R().SetQueryParam(
-			"school", c.School,
-		).SetHeader(
-			"Cookie", c.getCookie(),
-		).SetBody(
-			map[string]any{
-				"id":      c.Identity,
-				"method":  method,
-				"params":  params,
-				"jsonrpc": "2.0",
-			},
-		).Post(c.BaseURL + "/WebUntis/jsonrpc.do")
-
-		if err != nil {
-			return err
-		}
-		if resp.IsError() {
-			return errors.New("server response non 200e")
-		}
-
-		return nil
-	}, backoff.NewExponentialBackOff()); err != nil {
+	if err != nil {
 		return nil, err
+	}
+	if resp.IsError() {
+		return nil, errors.New("server response non 200e")
 	}
 
 	if !gjson.Get(resp.String(), "result").Exists() {
@@ -189,24 +187,9 @@ func (c *Client) request(method string, params interface{}, validateSession bool
 }
 
 func (c *Client) validateSession() error {
-	// TODO: maybe inform about usual backoff times in GO
-	b := backoff.NewExponentialBackOff()
-	b.Multiplier = 3
-	b.MaxElapsedTime = 30 * time.Minute
+	_, err := c.GetLatestSchoolyear(false)
 
-	return backoff.Retry(func() error {
-		_, err := c.GetLatestSchoolyear(false)
-		if err != nil {
-			f := backoff.NewExponentialBackOff()
-			b.MaxInterval = 30 * time.Minute
-			b.Multiplier = 2.5
-
-			return backoff.Retry(func() error {
-				return c.Login()
-			}, f)
-		}
-		return err
-	}, b)
+	return err
 }
 
 func (c *Client) requestTimeTable(id int, timeTableType int, startDate time.Time, endDate time.Time, validateSession bool) ([]GenericLesson, error) {
