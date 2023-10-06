@@ -45,16 +45,6 @@ func getLessonTimeFromInteger(i int) string {
 	return ""
 }
 
-func GetLessonMap(subjs []LessonWithSubj) (map[int]string, error) {
-	lessons := make(map[int]string)
-
-	for _, subj := range subjs {
-		lessons[subj.Id] = subj.Subject
-	}
-
-	return lessons, nil
-}
-
 func str(n int) string {
 	return strconv.Itoa(n)
 }
@@ -66,4 +56,15 @@ func TransformResultLesson(res []gjson.Result) []GenericLesson {
 		result[i].R = res[i]
 	}
 	return result
+}
+
+// GetLessonMap returns a map of lesson id and lesson subject
+func GetLessonMap(subjs []LessonWithSubj) (map[int]string, error) {
+	lessons := make(map[int]string)
+
+	for _, subj := range subjs {
+		lessons[subj.Id] = subj.Subject
+	}
+
+	return lessons, nil
 }
