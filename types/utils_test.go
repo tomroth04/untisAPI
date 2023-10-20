@@ -8,6 +8,7 @@ import (
 
 func TestToJsonStr(t *testing.T) {
 	assert.Equal(t, "{\"a\":1}", ToJsonStr(map[string]int{"a": 1}))
+
 }
 
 func TestGetDateUntisFormat(t *testing.T) {
@@ -18,7 +19,7 @@ func TestParseUntisDate(t *testing.T) {
 	if date, err := ParseUntisDate("20221202"); err != nil {
 		assert.NoError(t, err)
 	} else {
-		assert.Equal(t, time.Date(2022, 12, 2, 0, 0, 0, 0, time.UTC), date)
+		assert.Equal(t, time.Date(2022, 12, 2, 1, 0, 0, 0, time.Local), date)
 	}
 }
 

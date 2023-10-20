@@ -17,6 +17,7 @@ type Homework struct {
 	LessonName  string
 }
 
+// GetDate returns the inscription date of the homework as a time.Time object
 func (h Homework) GetDate() time.Time {
 	d, err := ParseUntisDate(str(h.Date))
 	if err != nil {
@@ -25,16 +26,11 @@ func (h Homework) GetDate() time.Time {
 	return d
 }
 
+// GetDueDate returns the due date of the homework as a time.Time object
 func (h Homework) GetDueDate() time.Time {
 	d, err := ParseUntisDate(str(h.DueDate))
 	if err != nil {
 		slog.Error("Error parsing due date", "error", err)
 	}
 	return d
-}
-
-func (h Homework) String() string {
-	return h.LessonName + ": " + h.Text +
-		" (" + h.GetDate().Format("02.01.2006") +
-		" - " + h.GetDueDate().Format("02.01.2006") + ")"
 }

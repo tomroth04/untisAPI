@@ -28,6 +28,10 @@ func (t Time) String() string {
 	return time.Time(t).Format("02 January 2006")
 }
 
+func (t Time) ToTime() time.Time {
+	return time.Time(t)
+}
+
 type LessonTime time.Time
 
 func (t *LessonTime) UnmarshalJSON(b []byte) error {
@@ -47,10 +51,6 @@ func (t *LessonTime) UnmarshalJSON(b []byte) error {
 }
 
 func (t LessonTime) toTime() time.Time {
-	return time.Time(t)
-}
-
-func (t Time) ToTime() time.Time {
 	return time.Time(t)
 }
 

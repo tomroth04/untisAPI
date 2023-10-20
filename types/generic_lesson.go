@@ -7,6 +7,9 @@ import (
 	"time"
 )
 
+// GenericLesson is a generic lesson
+// uses gjson.Result as data source as i didn't know the exact structure of the data
+// and i didn't want the code to break if the structure changes or I missed something
 type GenericLesson struct {
 	R gjson.Result
 }
@@ -53,21 +56,15 @@ func (g GenericLesson) GetDate() time.Time {
 		slog.Error("Error parsing date", "error", err)
 		return time.Time{}
 	}
-	return t.In(time.Now().Location())
+	return t
 }
 
 // GetDateFormatted gets the date formatted
 func (g GenericLesson) GetDateFormatted() string {
-	t, err := ParseUntisDate(strconv.Itoa(int(g.R.Get("date").Int())))
-	if err != nil {
-		slog.Error("Error parsing date", "error", err)
-		return ""
-	}
-	return t.Format("Monday, 02 January 2006")
+	return g.GetDate().Format("Monday, 02 January 2006")
 }
 
-// IsReplaced checks if the lesson has a replacement teacher
-// TODO: improve wording, probably call it substitute teacher
+// IsReplaced checks if the lesson has a substitute teacher
 func (g GenericLesson) IsReplaced() bool {
 	if !g.R.Get("te").Exists() {
 		slog.Error("No teacher", "data", g.R.String())

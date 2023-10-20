@@ -14,14 +14,18 @@ func ToJsonStr(data any) string {
 	return string(jsonData)
 }
 
-// GetDateUntisFormat formats date to string
+// GetDateUntisFormat formats date to string in the format untis uses
 func GetDateUntisFormat(date time.Time) string {
 	return date.Format("20060102")
 }
 
 // ParseUntisDate parses a string date
 func ParseUntisDate(date string) (time.Time, error) {
-	return time.Parse("20060102", date)
+	t, err := time.Parse("20060102", date)
+	if err != nil {
+		return t, err
+	}
+	return t.Local(), nil
 }
 
 // ToBase64 transform to base64
@@ -29,7 +33,7 @@ func ToBase64(str string) string {
 	return b64.StdEncoding.EncodeToString([]byte(str))
 }
 
-// parse the hourly time from a lesson
+// getLessonTimeFromInteger returns a string time from an integer
 func getLessonTimeFromInteger(i int) string {
 	n := strconv.Itoa(i)
 	if len(n) == 3 {
@@ -45,6 +49,7 @@ func getLessonTimeFromInteger(i int) string {
 	return ""
 }
 
+// str converts int to string
 func str(n int) string {
 	return strconv.Itoa(n)
 }

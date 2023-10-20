@@ -25,7 +25,6 @@ var personArrayMissing = eris.New("response didn't contain any persons array")
 var statusCodeNonOK = eris.New("status code non 200")
 
 // TODO: Check implementation of validateSession with regards to the 10minutes of idle time
-// TODO: undo some of the error wrapping or look into how errors are precisely handled in go
 
 type Client struct {
 	BaseURL            string
@@ -40,12 +39,17 @@ type Client struct {
 
 func NewClient(baseURL string, school string, identity string, username string, secret string) Client {
 	r := resty.New()
-	r.AddRetryAfterErrorCondition()
+	r.AddRetryCondition(func(r *resty.Response, err error) bool {
+		if r.Error() != nil || err != nil {
+			return true
+		}
+		return false
+	})
+	r.AddRetryHook(func(resp *resty.Response, err error) {
+		slog.Warn("request failed", "error", err, "status_code", resp.StatusCode(), err, "response", resp.String())
+	})
 	r.SetRetryCount(7)
 	r.SetRetryMaxWaitTime(10 * time.Minute)
-	r.AddRetryHook(func(resp *resty.Response, err error) {
-		slog.Warn("request failed", "error", "status_code", resp.StatusCode(), err, "response", resp.String())
-	})
 
 	return Client{
 		BaseURL:    "https://" + baseURL,
@@ -58,7 +62,6 @@ func NewClient(baseURL string, school string, identity string, username string, 
 }
 
 // Login with your credentials
-//
 // Notice: The server may revoke this session after less than 10min of idle.**
 func (c *Client) Login() error {
 	if err := c.getAccessToken(); err != nil {
@@ -401,6 +404,25 @@ func (c *Client) GetHomeWorkAndLessons(rangeStart time.Time, rangeEnd time.Time,
 	return resp.Body(), nil
 }
 
+func (c *Client) GetHolidays(validateSession bool) ([]Holiday, error) {
+	data, err := c.request("getHolidays", "{}", validateSession)
+	if err != nil {
+		return []Holiday{}, err
+	}
+
+	resultsJSON := gjson.GetBytes(data, "result")
+	if !resultsJSON.Exists() {
+		slog.Error("key result doesn't exist in answer", "respDATA", string(data))
+		return []Holiday{}, errors.New("key results doesn't exist in answer")
+	}
+	var holidays []Holiday
+
+	if err := json.Unmarshal([]byte(resultsJSON.String()), &holidays); err != nil {
+		return []Holiday{}, eris.Wrap(err, "error getting holidays")
+	}
+	return holidays, nil
+}
+
 // GetSchoolyears gets all WebUntis Schoolyears.
 func (c *Client) GetSchoolyears(validateSession bool) ([]SchoolYear, error) {
 	data, err := c.request("getSchoolyears", "{}", validateSession)
@@ -573,9 +595,7 @@ func (c *Client) getAccessToken() error {
 	)
 
 	if err != nil {
-		// TOOD: check if additional log information needs to be added here regarding this error:
-		slog.Error("error fetching token", "error", err)
-		return eris.Wrap(err, "error fetching token")
+		return eris.Wrap(err, "fetching token failed")
 	}
 
 	if resp.IsError() {
