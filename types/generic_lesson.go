@@ -103,3 +103,10 @@ func (g GenericLesson) GetSubstituteText() string {
 func (g GenericLesson) IsEqual(b GenericLesson) bool {
 	return g.R.String() == b.R.String()
 }
+
+func (g GenericLesson) GetActivityType() string {
+	if !g.R.Get("activityType").Exists() {
+		return ""
+	}
+	return g.R.Get("activityType").String()
+}

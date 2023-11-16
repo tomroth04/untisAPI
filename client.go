@@ -69,14 +69,14 @@ func (c *Client) Login() error {
 	}
 
 	// Get personId & personType
-	resp, err := c.httpClient.R().SetHeaders(
-		c.getHeaders(),
+	resp, err := c.httpClient.R().SetHeader(
+		"Cookie", c.getCookie(),
 	).Get(
 		fmt.Sprintf("%s/WebUntis/api/app/config", c.BaseURL),
 	)
 
 	if err != nil {
-		return err // wrap error
+		return eris.Wrap(err, "error during the extraction of personId & personType")
 	}
 
 	if resp.IsError() {
@@ -127,6 +127,12 @@ func (c *Client) Login() error {
 		return eris.Wrap(statusCodeNonOK, fmt.Sprintf("status code: %d", resp.StatusCode()))
 	}
 
+	if !gjson.Get(resp.String(), "data.klasseId").Exists() {
+		return responseNoDataKey
+	}
+
+	c.sessionInformation.ClassId = int(gjson.Get(resp.String(), "data.klasseId").Int())
+
 	return nil
 }
 
@@ -139,8 +145,9 @@ func (c *Client) Logout() error {
 			"method":  "logout",
 			"params":  "{}",
 			"jsonrpc": "2.0",
-		}).SetHeaders(
-		c.getHeaders(),
+		},
+	).SetHeader(
+		"Cookie", c.getCookie(),
 	).Post(
 		fmt.Sprintf("%s/WebUntis/jsonrpc.do", c.BaseURL))
 	if err != nil {
@@ -176,10 +183,10 @@ func (c *Client) request(method string, params interface{}, validateSession bool
 	).Post(c.BaseURL + "/WebUntis/jsonrpc.do")
 
 	if err != nil {
-		return nil, err
+		return nil, eris.Wrap(err, "error during http request")
 	}
 	if resp.IsError() {
-		return nil, errors.New("server response non 200e")
+		return nil, statusCodeNonOK
 	}
 
 	if !gjson.Get(resp.String(), "result").Exists() {
@@ -581,15 +588,8 @@ func (c *Client) getAccessToken() error {
 
 	resp, err := c.httpClient.R().SetBody(
 		bytes.NewReader(bodyJSON),
-	).SetHeaders(
-		map[string]string{
-			"Accept":           "application/json, text/plain, */*",
-			"Content-Type":     "application/json",
-			"Cache-Control":    "no-cache",
-			"Pragma":           "no-cache",
-			"X-Requested-With": "XMLHttpRequest",
-			"User-Agent":       c.Identity,
-		},
+	).SetHeader(
+		"User-Agent", c.Identity,
 	).SetContentLength(true).Post(
 		fmt.Sprintf("%s/WebUntis/jsonrpc_intern.do?m=getUserData2017&school=%s&v=i2.2", c.BaseURL, c.School),
 	)
@@ -625,14 +625,4 @@ func (c *Client) extractCookieInformation(cookies string) {
 
 func (c *Client) getCookie() string {
 	return fmt.Sprintf("schoolname=\"%s\"; JSESSIONID=%s;", "_"+ToBase64(c.School), c.sessionInformation.SessionId)
-}
-
-func (c *Client) getHeaders() map[string]string {
-	return map[string]string{
-		"Cookie":           c.getCookie(),
-		"User-Agent":       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/61.0.3163.79 Safari/537.36",
-		"Cache-Control":    "no-cache",
-		"Pragma":           "no-cache",
-		"X-Requested-With": "XMLH<ttpRequest",
-	}
 }
