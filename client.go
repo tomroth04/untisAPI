@@ -50,7 +50,7 @@ func NewClient(baseURL string, school string, identity string, username string, 
 	})
 	r.SetRetryCount(7)
 	r.SetRetryMaxWaitTime(10 * time.Minute)
-
+	r.SetRetryWaitTime(25 * time.Second)
 	return Client{
 		BaseURL:    "https://" + baseURL,
 		School:     school,
