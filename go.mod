@@ -3,11 +3,11 @@ module github.com/tomroth04/untisAPI
 go 1.19
 
 require (
-	github.com/go-resty/resty/v2 v2.10.0
+	github.com/go-resty/resty/v2 v2.11.0
 	github.com/pquerna/otp v1.4.0
 	github.com/rotisserie/eris v0.5.4
 	github.com/stretchr/testify v1.8.4
-	github.com/tidwall/gjson v1.17.0
+	github.com/tidwall/gjson v1.17.1
 )
 
 require (
