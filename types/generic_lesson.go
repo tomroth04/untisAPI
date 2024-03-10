@@ -110,3 +110,7 @@ func (g GenericLesson) GetActivityType() string {
 	}
 	return g.R.Get("activityType").String()
 }
+
+func (g GenericLesson) ToString() string {
+	return g.R.String()
+}
