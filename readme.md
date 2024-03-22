@@ -10,7 +10,7 @@ The library is not perfect, am not a professional go developer, so feel free to 
 ## Installation
 
 ```
-go get github.com/tomroth04/untisApi
+go get github.com/tomroth04/untisAPI
 ```
 
 ## Getting started
