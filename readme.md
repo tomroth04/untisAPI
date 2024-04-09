@@ -16,7 +16,6 @@ go get github.com/tomroth04/untisApi
 ## Getting started
 
 ```golang
-
 import (
     "fmt"
     "log"
@@ -26,7 +25,8 @@ import (
 
 username := "" // fill in your username
 password := "" // fill in your password
-client := untisAPI.NewClient("antiope.webuntis.com", "lmrl", "ANDROID", username, password)
+school := "" // fill in your school
+client := untisAPI.NewClient("antiope.webuntis.com", school, "ANDROID", username, password)
 
 if err := client.Login(); err != nil {
     log.Fatalln(err)
